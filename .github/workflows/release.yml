@@ -1,0 +1,310 @@
+name: Release to PSGallery
+
+# ─── Trigger on git tag push (v*) or manual dispatch ─────────────────────────
+# This is the standard PSGallery release pattern:
+#   git tag v1.0.0 && git push origin v1.0.0
+# The tag must match the ModuleVersion in the manifest.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'   # v1.0.0, v1.2.3-beta1, etc.
+
+  workflow_dispatch:
+    inputs:
+      skip_duplicate_check:
+        description: 'Skip check for already-published version'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write   # needed for creating GitHub Release
+
+env:
+  MODULE_NAME: EventMonitor.Windows
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 1 — Lint
+  # ═══════════════════════════════════════════════════════════════════════════
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings PSGallery -ExcludeRule PSUseSingularNouns, PSUseShouldProcessForStateChangingFunctions, PSUseApprovedVerbs, PSAvoidUsingEmptyCatchBlock
+          $results | Format-Table -AutoSize
+          if ($results | Where-Object Severity -in 'Error','Warning') {
+              throw "PSScriptAnalyzer found $( ($results | Where-Object Severity -in 'Error','Warning').Count ) issue(s)."
+          }
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 2 — Test
+  # ═══════════════════════════════════════════════════════════════════════════
+  test:
+    name: Pester Tests
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
+
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = './tests'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.TestResult.Enabled = $true
+          $cfg.TestResult.OutputPath = 'testResults.xml'
+          $cfg.TestResult.OutputFormat = 'NUnitXml'
+          $cfg.CodeCoverage.Enabled = $true
+          $cfg.CodeCoverage.Path = @('./EventMonitor')
+          $cfg.CodeCoverage.OutputPath = 'coverage.xml'
+          $cfg.CodeCoverage.OutputFormat = 'CoverageGutters'
+          Invoke-Pester -Configuration $cfg
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: testResults.xml
+
+      - name: Upload Code Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: coverage.xml
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 3 — Validate (manifest, version, changelog, no duplicate)
+  # ═══════════════════════════════════════════════════════════════════════════
+  validate:
+    name: Pre-Publish Validation
+    needs: [lint, test]
+    runs-on: windows-latest
+    outputs:
+      module_version: ${{ steps.version.outputs.module_version }}
+      release_notes: ${{ steps.changelog.outputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog extraction
+
+      - name: Validate Module Manifest
+        shell: pwsh
+        run: |
+          $manifest = Test-ModuleManifest -Path './${{ env.MODULE_NAME }}.psd1' -ErrorAction Stop
+          Write-Output "✅ Manifest valid: $($manifest.Name) v$($manifest.Version)"
+          Write-Output "   RootModule:  $($manifest.RootModule)"
+          Write-Output "   Functions:   $($manifest.ExportedFunctions.Keys -join ', ')"
+          Write-Output "   PS Version:  $($manifest.PowerShellVersion)"
+
+      - name: Extract & Validate Version
+        id: version
+        shell: pwsh
+        run: |
+          $manifest = Import-PowerShellDataFile -Path './${{ env.MODULE_NAME }}.psd1'
+          $moduleVersion = $manifest.ModuleVersion
+          Write-Output "Module version from manifest: $moduleVersion"
+
+          # If triggered by a tag, verify the tag matches the manifest version
+          $ref = '${{ github.ref }}'
+          if ($ref -like 'refs/tags/v*') {
+              $tagVersion = $ref -replace '^refs/tags/v', ''
+              # Strip prerelease suffix for comparison if present
+              $tagBase = ($tagVersion -split '-')[0]
+              if ($tagBase -ne $moduleVersion) {
+                  throw "Tag version '$tagBase' does not match manifest ModuleVersion '$moduleVersion'. Update the manifest first."
+              }
+              Write-Output "✅ Tag v$tagVersion matches manifest version $moduleVersion"
+          }
+
+          "module_version=$moduleVersion" | Out-File -Append $env:GITHUB_OUTPUT
+
+      - name: Validate CHANGELOG has entry for this version
+        id: changelog
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.module_version }}'
+          $changelog = Get-Content -Raw './CHANGELOG.md'
+
+          if ($changelog -notmatch "\[${version}\]") {
+              throw "CHANGELOG.md has no entry for version [$version]. Add a release section before tagging."
+          }
+          Write-Output "✅ CHANGELOG.md contains entry for [$version]"
+
+          # Extract release notes for this version (text between this version header and next)
+          $pattern = "(?ms)## \[$([regex]::Escape($version))\].*?(?=\n## \[|\z)"
+          $match = [regex]::Match($changelog, $pattern)
+          if ($match.Success) {
+              $notes = $match.Value.Trim()
+              # Escape for GitHub Output (multiline)
+              $escaped = $notes -replace '%', '%25' -replace "`n", '%0A' -replace "`r", '%0D'
+              "release_notes=$escaped" | Out-File -Append $env:GITHUB_OUTPUT
+          }
+
+      - name: Check version not already on PSGallery
+        if: ${{ github.event.inputs.skip_duplicate_check != 'true' }}
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.module_version }}'
+          try {
+              $existing = Find-Module -Name '${{ env.MODULE_NAME }}' -RequiredVersion $version -Repository PSGallery -ErrorAction Stop
+              throw "Version $version is already published on PSGallery. Bump ModuleVersion in the manifest."
+          }
+          catch {
+              if ($_.Exception.Message -like '*No match*' -or $_.Exception.Message -like '*was not found*') {
+                  Write-Output "✅ Version $version is not yet published — safe to release."
+              }
+              elseif ($_.Exception.Message -like '*already published*') {
+                  throw $_
+              }
+              else {
+                  Write-Output "⚠️  Could not query PSGallery (may be offline). Proceeding anyway."
+              }
+          }
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 4 — Publish to PSGallery
+  # ═══════════════════════════════════════════════════════════════════════════
+  publish:
+    name: Publish to PSGallery
+    needs: validate
+    runs-on: windows-latest
+    environment: PSGallery
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage Module for Publishing
+        shell: pwsh
+        run: |
+          # Create a clean staging directory with only publishable content
+          $stagingDir = Join-Path $env:RUNNER_TEMP '${{ env.MODULE_NAME }}'
+          New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
+
+          # Copy module files (exclude CI, tests, docs, git)
+          $include = @(
+              'EventMonitor.Windows.psd1',
+              'EventMonitor',
+              'LICENSE',
+              'README.md',
+              'CHANGELOG.md'
+          )
+          foreach ($item in $include) {
+              $src = Join-Path '.' $item
+              $dst = Join-Path $stagingDir $item
+              if (Test-Path $src -PathType Container) {
+                  Copy-Item -Path $src -Destination $dst -Recurse -Force
+              } else {
+                  Copy-Item -Path $src -Destination $dst -Force
+              }
+          }
+
+          # Remove files that should not be published
+          $exclude = @(
+              (Join-Path $stagingDir 'EventMonitor' 'Telemetry' 'Logs.txt'),
+              (Join-Path $stagingDir 'EventMonitor' 'Telemetry' 'LogAnalyticsConString.txt')
+          )
+          foreach ($f in $exclude) {
+              if (Test-Path $f) { Remove-Item $f -Force }
+          }
+
+          Write-Output "Staged module at: $stagingDir"
+          Get-ChildItem -Path $stagingDir -Recurse | Select-Object FullName
+
+      - name: Validate Staged Module
+        shell: pwsh
+        run: |
+          $stagingDir = Join-Path $env:RUNNER_TEMP '${{ env.MODULE_NAME }}'
+          Test-ModuleManifest -Path (Join-Path $stagingDir '${{ env.MODULE_NAME }}.psd1') -ErrorAction Stop
+
+      - name: Publish Module
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          $key = ($env:PSGALLERY_API_KEY ?? '').Trim()
+          if ([string]::IsNullOrEmpty($key)) {
+              throw 'PSGALLERY_API_KEY secret is not set. Add it under Settings > Environments > PSGallery > Secrets.'
+          }
+          Write-Output "API key length: $($key.Length) chars"
+          Write-Output "PowerShellGet version: $((Get-Module PowerShellGet -ListAvailable | Select-Object -First 1).Version)"
+
+          $stagingDir = Join-Path $env:RUNNER_TEMP '${{ env.MODULE_NAME }}'
+          try {
+              Publish-Module -Path $stagingDir -NuGetApiKey $key -Repository PSGallery -Verbose
+              Write-Output "✅ Published ${{ env.MODULE_NAME }} v${{ needs.validate.outputs.module_version }} to PSGallery"
+          }
+          catch {
+              Write-Error "Publish failed: $($_.Exception.Message)"
+              Write-Output "Full error details:"
+              $_ | Format-List -Force
+              if ($_.Exception.Message -match '403|Forbidden') {
+                  Write-Output ''
+                  Write-Output '──────────────────────────────────────────────'
+                  Write-Output 'TROUBLESHOOTING 403 Forbidden:'
+                  Write-Output '1. Verify the API key at https://www.powershellgallery.com/account/apikeys'
+                  Write-Output "2. Key must have scope: 'Push new packages and package versions'"
+                  Write-Output "3. Glob pattern must be '*' or 'EventMonitor.Windows'"
+                  Write-Output '4. Key must not be expired'
+                  Write-Output '5. Ensure it was set as an ENVIRONMENT secret (Settings > Environments > PSGallery > Secrets)'
+                  Write-Output '──────────────────────────────────────────────'
+              }
+              throw
+          }
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 5 — Create GitHub Release with changelog notes
+  # ═══════════════════════════════════════════════════════════════════════════
+  github-release:
+    name: Create GitHub Release
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract Changelog for Release Body
+        id: notes
+        shell: pwsh
+        run: |
+          $version = '${{ needs.validate.outputs.module_version }}'
+          $changelog = Get-Content -Raw './CHANGELOG.md'
+          $pattern = "(?ms)## \[$([regex]::Escape($version))\].*?(?=\n## \[|\z)"
+          $match = [regex]::Match($changelog, $pattern)
+          $body = if ($match.Success) { $match.Value.Trim() } else { "Release v$version" }
+          $body | Out-File -FilePath 'release_notes.md' -Encoding utf8
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.validate.outputs.module_version }}
+          name: v${{ needs.validate.outputs.module_version }}
+          body_path: release_notes.md
+          generate_release_notes: false
+          files: |
+            artifacts/**/*

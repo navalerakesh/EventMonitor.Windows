@@ -1,0 +1,30 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shieldMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+    <linearGradient id="shieldHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+  </defs>
+  <path d="M128 20 L210 52 L210 116 C210 162 172 188 128 200 C84 188 46 162 46 116 L46 52 Z" fill="url(#shieldMain)" stroke="#1e3a8a" stroke-width="2.5"/>
+  <path d="M128 28 L200 56 L200 110 C200 150 166 172 128 182 C90 172 56 150 56 110 L56 56 Z" fill="url(#shieldHighlight)"/>
+  <polyline points="40,125 65,125 82,108 104,145 128,82 152,145 174,108 191,125 216,125" stroke="url(#signal)" stroke-width="3.5" fill="none" filter="url(#glow)"/>
+  <circle cx="104" cy="145" r="4.5" fill="#34d399"/>
+  <circle cx="128" cy="82" r="4.5" fill="#34d399"/>
+  <circle cx="152" cy="145" r="4.5" fill="#34d399"/>
+  <line x1="104" y1="145" x2="128" y2="82" stroke="#34d399" stroke-width="1.5"/>
+  <line x1="128" y1="82" x2="152" y2="145" stroke="#34d399" stroke-width="1.5"/>
+  <text x="128" y="225" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#2563eb" letter-spacing="3">EVENT MONITOR</text>
+  <text x="128" y="245" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#64748b" letter-spacing="0.5">AI &amp; Machine Security</text>
+</svg>

@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings PSGallery -ExcludeRule PSUseSingularNouns, PSUseShouldProcessForStateChangingFunctions, PSUseApprovedVerbs, PSAvoidUsingEmptyCatchBlock
+          $results | Format-Table -AutoSize
+          if ($results | Where-Object Severity -in 'Error','Warning') {
+              throw "PSScriptAnalyzer found $( ($results | Where-Object Severity -in 'Error','Warning').Count ) error/warning issue(s)."
+          }
+
+  test:
+    name: Pester Tests (PS ${{ matrix.psversion }})
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        psversion: ['7']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
+
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = './tests'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.TestResult.Enabled = $true
+          $cfg.TestResult.OutputPath = 'testResults.xml'
+          $cfg.TestResult.OutputFormat = 'NUnitXml'
+          $cfg.CodeCoverage.Enabled = $true
+          $cfg.CodeCoverage.Path = @('./EventMonitor')
+          $cfg.CodeCoverage.OutputPath = 'coverage.xml'
+          $cfg.CodeCoverage.OutputFormat = 'CoverageGutters'
+          Invoke-Pester -Configuration $cfg
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-ps${{ matrix.psversion }}
+          path: testResults.xml
+
+      - name: Upload Code Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-ps${{ matrix.psversion }}
+          path: coverage.xml
+
+  validate-manifest:
+    name: Validate Module Manifest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test Module Manifest
+        shell: pwsh
+        run: |
+          $manifest = Test-ModuleManifest -Path './EventMonitor.Windows.psd1' -ErrorAction Stop
+          Write-Output "Module: $($manifest.Name) v$($manifest.Version)"
+          Write-Output "Exported functions: $($manifest.ExportedFunctions.Keys -join ', ')"

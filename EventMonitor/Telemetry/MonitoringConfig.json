@@ -1,0 +1,19 @@
+{
+  "JournalEnabled": false,
+  "RetentionDays": 7,
+  "Level": "Standard",
+  "JournalMinSeverity": "Medium",
+  "LogLevel": "Warning",
+  "EnabledGroups": [
+    "Logon",
+    "Logoff",
+    "SSH",
+    "RDP",
+    "AccountManagement",
+    "GroupManagement",
+    "AuditTampering",
+    "Persistence",
+    "PersistenceSystem",
+    "SystemHealth"
+  ]
+}
