@@ -31,8 +31,9 @@ Copyright = '(c) 2026-present Rakesh Navale. All rights reserved.'
 
 # Description of the functionality provided by this module
 Description = @'
-Real-time Windows security event monitoring with zero-polling architecture. Uses EventLogWatcher
-for instant OS-level event delivery, a self-healing watchdog, and pluggable telemetry sinks.
+Real-time Windows Event Log monitoring and alerting module for PowerShell. EventMonitor.Windows
+enables security monitoring, automation, observability pipelines, SIEM integration, telemetry,
+and AI agent orchestration using EventLogWatcher for instant OS-level event delivery.
 
 Monitors 40+ event IDs across 17 groups: logon/logoff, failed authentication (brute force),
 account management, group membership changes, privilege escalation, process execution,
@@ -136,11 +137,12 @@ PrivateData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
         Tags = @(
-            'Windows', 'Security', 'EventMonitor', 'EventLog', 'SIEM',
-            'ApplicationInsights', 'Telemetry', 'RDP', 'SSH', 'WinRM',
-            'Logon', 'AuditLog', 'ThreatDetection', 'Defender',
-            'Firewall', 'BruteForce', 'ScheduledTask', 'PowerShell7',
-            'PSEdition_Core'
+            'Windows', 'WindowsSecurity', 'EventLog', 'Monitoring', 'Alerting',
+            'Observability', 'Security', 'Automation', 'Telemetry', 'SIEM',
+            'ThreatDetection', 'Agent', 'AI', 'Agentic', 'EventMonitor',
+            'ApplicationInsights', 'RDP', 'SSH', 'WinRM', 'Logon',
+            'AuditLog', 'Defender', 'Firewall', 'BruteForce',
+            'ScheduledTask', 'PowerShell7', 'PSEdition_Core'
         )
 
         # A URL to the license for this module.
@@ -150,7 +152,7 @@ PrivateData = @{
         ProjectUri = 'https://github.com/navalerakesh/EventMonitor.Windows'
 
         # A URL to an icon representing this module.
-        IconUri = 'https://raw.githubusercontent.com/navalerakesh/EventMonitor.Windows/main/assets/icon.png'
+        IconUri = 'https://raw.githubusercontent.com/navalerakesh/EventMonitor.Windows/main/assets/icon.svg'
 
         # ReleaseNotes of this module
         ReleaseNotes = @'

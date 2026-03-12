@@ -15,6 +15,13 @@ A PowerShell 7.4+ security monitoring module for Windows. Monitors 40+ Windows e
 
 Runs as a long-running service under the SYSTEM account with automatic self-healing via a built-in watchdog.
 
+## PowerShell Gallery
+
+```powershell
+Find-Module EventMonitor.Windows
+Install-Module -Name EventMonitor.Windows -Scope CurrentUser
+```
+
 ### Built for the AI Era
 
 AI coding assistants, agentic bots, and automation tools run with your user context — they can execute commands, open network connections, install packages, and access your files. **EventMonitor.Windows catches what they do:**
