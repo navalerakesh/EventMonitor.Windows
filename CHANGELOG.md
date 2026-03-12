@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-03-11
+
+### Changed
+- Improved PowerShell Gallery discoverability metadata in the module manifest with stronger search-oriented description text and expanded tags.
+- Added explicit `Find-Module` and `Install-Module` commands to the README for faster gallery discovery and install flow.
+- Hardened GitHub Actions checkout steps to pass the workflow token explicitly across CI and release jobs.
+- Fixed the `workflow_dispatch` boolean input default in the release workflow so the YAML validates correctly.
+
 ## [1.0.3] - 2026-03-08
 - Auto release creation 
 
